@@ -4,6 +4,7 @@
 #include <Adafruit_NeoMatrix.h>
 
 #include "can.h"
+#include "eye_math.h"
 
 #define LED_PIN 5
 #define LED_WIDTH 8
@@ -26,13 +27,14 @@ auto matrix = Adafruit_NeoMatrix(LED_WIDTH,
 
 int xAccel = 0;
 int yAccel = 0;
-float scaledY = 0.0;
-int scaledYInt = 0;
+// float scaledY = 0.0;
+// int scaledYInt = 0;
 
 const int senstivity = 100;
 int yMin = 1000;
 int yMax = 0;
 int yAvg = 0;
+int ySum = 0;
 int val = 0;
 int sample_count = 0;
 int cooldown = 0;
@@ -59,18 +61,16 @@ void changeModeAndSend() {
 }
 
 // TODO damper w/ integral?
-void sendMove(int yAcceleration) {
+// canValue [0, 100]
+void sendMove(int canValue) {
   currentMillis = millis();
 
   if (currentMillis - lastSendMoveTimestamp < messageCooldown) {
     return;
   }
 
-  scaledY = (yAccel / 1000.0) * 100.0;
-  scaledYInt = static_cast<int>(round(scaledY));
-  Serial.printf("scaledY value=%d at %d\n", scaledYInt, currentMillis);
   CAN.beginPacket(MOVE_IMAGE_PACKET_ID);
-  CAN.write(scaledYInt);
+  CAN.write(canValue);
   CAN.endPacket();
   lastSendMoveTimestamp = currentMillis;
 }
@@ -137,6 +137,10 @@ void setup() {
   matrix.show();
 }
 
+const int circularBufferSize = 100;
+int circularBuffer[circularBufferSize];
+int circularBufferIndex = 0;
+
 void loop() {
   // TODO - check for button hold
   if (false) {
@@ -150,30 +154,53 @@ void loop() {
 
     if (currentImageNumber > 3) {
       currentImageNumber = 0;
-    // }
+    }
 
     CAN.write(currentImageNumber);
     CAN.endPacket();
 
     // update display
   }
-
   xAccel = analogRead(X_AXIS_PIN);
   yAccel = analogRead(Y_AXIS_PIN);
   yMin = min(yAccel, yMin);
   yMax = max(yAccel, yMax);
-  if (sample_count < 5) {
-    sample_count++;
-    yAvg = (yAvg + yAccel) / 2;
+  circularBuffer[circularBufferIndex] = yAccel;
+  circularBufferIndex++;
+
+  if (circularBufferIndex == circularBufferSize) {
+    circularBufferIndex = 0;
   }
-  if (sample_count < 5) {
+
+  ySum = 0;
+  for (int i = 0; i < circularBufferSize; i++) {
+    ySum += circularBuffer[i];
+  }
+
+  yAvg = ySum / circularBufferSize;
+
+  if (sample_count < circularBufferSize) {
+    sample_count++;
+  }
+  if (sample_count < circularBufferSize) {
     return;
   }
 
+  // yAvg [0, 1000]
+  Serial.printf("yAvg=%d\n", yAvg);
+  double yAccelMetersPerSecondSquared = (yAvg - 500.0) / 500 * 29.4;
+
+  // tmp [-1, 1]
+  double pupilHorizonalOffsetRatio = pupilHorizonalOffset(27.0, 20.0, yAccelMetersPerSecondSquared);
+
+  // -> [0, 100]
+  int canValue = round((pupilHorizonalOffsetRatio + 1) * 50);
+  Serial.printf("yAccelMetersPerSecondSquared=%f pupilHorizonalOffsetRatio=%f canValue=%d at %d\n", yAccelMetersPerSecondSquared, pupilHorizonalOffsetRatio, canValue, currentMillis);
+
   if (mode == DYNAMIC_IMAGE_MODE) {
-    sendMove(yAccel);
-    updateDisplay(yAccel);
+    sendMove(canValue);
+    // updateDisplay(canValue);
   }
 
-  delay(5);
+  delay(100);
 }
