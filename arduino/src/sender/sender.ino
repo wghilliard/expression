@@ -165,6 +165,7 @@ void loop() {
   yAccel = analogRead(Y_AXIS_PIN);
   yMin = min(yAccel, yMin);
   yMax = max(yAccel, yMax);
+  // Serial.printf("yAccel=%d\n", yAccel);
   circularBuffer[circularBufferIndex] = yAccel;
   circularBufferIndex++;
 
@@ -187,20 +188,23 @@ void loop() {
   }
 
   // yAvg [0, 1000]
-  Serial.printf("yAvg=%d\n", yAvg);
+  // Serial.printf("yAvg=%d\n", yAvg);
   double yAccelMetersPerSecondSquared = (yAvg - 500.0) / 500 * 29.4;
 
   // tmp [-1, 1]
   double pupilHorizonalOffsetRatio = pupilHorizonalOffset(27.0, 20.0, yAccelMetersPerSecondSquared);
 
-  // -> [0, 100]
+  // [-1, 1] -> [0, 100]
   int canValue = round((pupilHorizonalOffsetRatio + 1) * 50);
-  Serial.printf("yAccelMetersPerSecondSquared=%f pupilHorizonalOffsetRatio=%f canValue=%d at %d\n", yAccelMetersPerSecondSquared, pupilHorizonalOffsetRatio, canValue, currentMillis);
+  // Serial.printf("yAccelMetersPerSecondSquared=%f pupilHorizonalOffsetRatio=%f canValue=%d at %d\n", yAccelMetersPerSecondSquared, pupilHorizonalOffsetRatio, canValue, currentMillis);
 
+  canValue = min(canValue, 100);
+  canValue = max(canValue, 0);
   if (mode == DYNAMIC_IMAGE_MODE) {
+    // Serial.printf("canValue=%d\n", canValue);
     sendMove(canValue);
     // updateDisplay(canValue);
   }
 
-  delay(100);
+  delay(10);
 }

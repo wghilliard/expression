@@ -207,7 +207,7 @@ void loop() {
       //   return;
       // }
 
-      centroid = (message.data[0] + centroid) / 2;
+      // centroid = (message.data[0] + centroid) / 2;
       Serial.printf("new centroid==%d\n", centroid);
       currentMillis = millis();
       if (currentMillis - lastMovedImageDrawnTimestamp > messageCooldown || abs(centroid - message.data[0]) > 10) {
