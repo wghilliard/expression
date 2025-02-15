@@ -1,0 +1,6 @@
+venv
+.idea
+.DS_Store
+.vs
+tools/*.png
+tools/*.jpeg
