@@ -41,7 +41,7 @@ int grid[LED_WIDTH][LED_HEIGHT] = { 0 };
 
 unsigned long lastSendMoveTimestamp = millis();
 unsigned long currentMillis;
-long messageCooldown = 500;
+long messageCooldown = 100;
 
 int currentImageNumber = 0;
 

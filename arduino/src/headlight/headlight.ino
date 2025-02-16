@@ -37,6 +37,7 @@ int imageCursor = 0;
 unsigned long lastMovedImageDrawnTimestamp = millis();
 unsigned long currentMillis;
 long messageCooldown = 500;
+uint lastMessageValue = 0;
 
 // int updateCount = 0;
 // int renderedBytes = 0;
@@ -44,6 +45,8 @@ long messageCooldown = 500;
 
 uint16_t** grid;
 int gridSize = 0;
+uint16_t* buffer;
+int bufferSize = 0;
 
 
 void loadImage(const uint8_t* compressedData, size_t size) {
@@ -52,10 +55,13 @@ void loadImage(const uint8_t* compressedData, size_t size) {
       free(grid[i]);
     }
     free(grid);
+    free(buffer);
   }
 
-  grid = (uint16_t**)ps_malloc(images[imageCursor].width * sizeof(uint16_t*));
   gridSize = images[imageCursor].width;
+  grid = (uint16_t**)ps_malloc(gridSize * sizeof(uint16_t*));
+  bufferSize = images[imageCursor].width * images[imageCursor].height;
+  buffer = (uint16_t*)ps_malloc(bufferSize * sizeof(uint16_t*));
 
   // Allocate an array of pointers
   // int** arr = malloc(rows * sizeof(int*));
@@ -66,17 +72,31 @@ void loadImage(const uint8_t* compressedData, size_t size) {
   jpeg.openFLASH((uint8_t*)compressedData, size, JPEGDraw);
   jpeg.decode(0, 0, 0);
   jpeg.close();
+
+
+  int currentX = 0;
+  int currentY = 0;
+  for (int bufferIndex = 0; bufferIndex < bufferSize; bufferIndex++) {
+    buffer[bufferIndex] = grid[currentX][currentY];
+    currentX++;
+    if (currentX >= gridSize) {
+      currentX = 0;
+      currentY++;
+    }
+  }
 }
 
 void drawImage(int xOffset, int yOffset) {
-  Serial.printf("xOffset=%d yOffset=%d\n", xOffset, yOffset);
+  // Serial.printf("xOffset=%d yOffset=%d\n", xOffset, yOffset);
   gfx->fillScreen(BLACK);
 
-  for (int xIndex = 0; xIndex < images[imageCursor].width; xIndex++) {
-    for (int yIndex = 0; yIndex < images[imageCursor].height; yIndex++) {
-      gfx->writePixel(xOffset + xIndex, yOffset + yIndex, grid[xIndex][yIndex]);
-    }
-  }
+  // for (int xIndex = 0; xIndex < images[imageCursor].width; xIndex++) {
+  //   for (int yIndex = 0; yIndex < images[imageCursor].height; yIndex++) {
+  //     gfx->writePixel(xOffset + xIndex, yOffset + yIndex, grid[xIndex][yIndex]);
+  //   }
+  // }
+
+  gfx->draw16bitRGBBitmap(xOffset, yOffset, buffer, images[imageCursor].width, images[imageCursor].height);
 }
 
 int JPEGDraw(JPEGDRAW* pDraw) {
@@ -195,13 +215,8 @@ void setup(void) {
   }
 }
 
-int xCursor = 0;
 
 void loop() {
-  // gfx->fillScreen(BLACK);
-  // xCursor += 10;
-  // const Image& currentImage = images[imageCursor];
-  // loadImage(400, 400, currentImage.data, currentImage.size);
   // Serial.print("Free memory: ");
   // Serial.println(ESP.getFreeHeap());
   // Serial.print("Free PSRAM: ");
@@ -238,6 +253,12 @@ void loop() {
       // }
       // [0, 100]
       uint percentOffset = message.data[0];
+
+      if (percentOffset == lastMessageValue) {
+        return;
+      } else {
+        lastMessageValue = percentOffset;
+      }
 
       // screen origin is 0, 0 at top left
       int imageCenterX = (SCREEN_WIDTH * percentOffset) / 100;
