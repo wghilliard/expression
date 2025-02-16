@@ -17,6 +17,9 @@
 #define DYNAMIC_IMAGE_MODE 1
 #define NO_IMAGE_MODE 2
 
+const int displayRow = 3;
+
+
 CANSAME5x CAN;
 int mode = 1;
 auto matrix = Adafruit_NeoMatrix(LED_WIDTH,
@@ -25,14 +28,10 @@ auto matrix = Adafruit_NeoMatrix(LED_WIDTH,
                                  NEO_MATRIX_TOP + NEO_MATRIX_LEFT + NEO_MATRIX_ROWS + NEO_MATRIX_PROGRESSIVE,
                                  NEO_GRB);
 
-int xAccel = 0;
 int yAccel = 0;
-// float scaledY = 0.0;
-// int scaledYInt = 0;
 
-const int senstivity = 100;
-int yMin = 1000;
-int yMax = 0;
+// int yMin = 1000;
+// int yMax = 0;
 int yAvg = 0;
 int ySum = 0;
 int val = 0;
@@ -45,6 +44,10 @@ unsigned long currentMillis;
 long messageCooldown = 500;
 
 int currentImageNumber = 0;
+
+const int circularBufferSize = 70;
+int circularBuffer[circularBufferSize];
+int circularBufferIndex = 0;
 
 void changeModeAndSend() {
   mode++;
@@ -87,32 +90,42 @@ void showMode() {
   matrix.drawPixel(0, 0, color);
 }
 
-void updateDisplay(int yAcceleration) {
-  if (cooldown == 0) {
-    // we moving back
-    if (yAcceleration > yAvg + senstivity) {
-      grid[3][3] = 255;
-      grid[4][3] = 255;
-    }
-    // we moving forward
-    else if (yAcceleration < yAvg - senstivity) {
-      grid[3][0] = 255;
-      grid[4][0] = 255;
-    }
-  } else if (cooldown < 5) {
-    cooldown++;
-  } else {
-    cooldown = 0;
-  }
+// [0, 100]
+// [0, 0, 0, 0, 0, 0, 0, 0]
+
+// [40, 60]
+// [0, 7]
+void updateDisplay(int canValue) {
+  // if (cooldown == 0) {
+
+  // // we moving back
+  // if (yAcceleration > yAvg + senstivity) {
+  //   grid[3][3] = 255;
+  //   grid[4][3] = 255;
+  // }
+  // // we moving forward
+  // else if (yAcceleration < yAvg - senstivity) {
+  //   grid[3][0] = 255;
+  //   grid[4][0] = 255;
+  // }
+  // } else if (cooldown < 5) {
+  //   cooldown++;
+  // } else {
+  //   cooldown = 0;
+  // }
+
+  int index = ((canValue - 40) / 3);
+  // Serial.printf("index=%d\n", index);
+  index = max(index, 0);
+  index = min(index, 7);
+  grid[index][displayRow] = 255;
 
   for (short x = 0; x < LED_WIDTH; x++) {
-    for (short y = 0; y < LED_HEIGHT; y++) {
-      val = grid[x][y];
-      matrix.drawPixel(x, y, Adafruit_NeoMatrix::Color(0, val, 0));
+    val = grid[x][displayRow];
+    matrix.drawPixel(x, displayRow, Adafruit_NeoMatrix::Color(0, 0, val));
 
-      if (val > 0) {
-        grid[x][y] -= 5;
-      }
+    if (val > 0) {
+      grid[x][displayRow] -= 5;
     }
   }
   matrix.show();
@@ -137,9 +150,7 @@ void setup() {
   matrix.show();
 }
 
-const int circularBufferSize = 100;
-int circularBuffer[circularBufferSize];
-int circularBufferIndex = 0;
+
 
 void loop() {
   // TODO - check for button hold
@@ -161,10 +172,10 @@ void loop() {
 
     // update display
   }
-  xAccel = analogRead(X_AXIS_PIN);
-  yAccel = analogRead(Y_AXIS_PIN);
-  yMin = min(yAccel, yMin);
-  yMax = max(yAccel, yMax);
+  // xAccel = analogRead(X_AXIS_PIN);
+  yAccel = analogRead(X_AXIS_PIN);
+  // yMin = min(yAccel, yMin);
+  // yMax = max(yAccel, yMax);
   // Serial.printf("yAccel=%d\n", yAccel);
   circularBuffer[circularBufferIndex] = yAccel;
   circularBufferIndex++;
@@ -203,7 +214,7 @@ void loop() {
   if (mode == DYNAMIC_IMAGE_MODE) {
     // Serial.printf("canValue=%d\n", canValue);
     sendMove(canValue);
-    // updateDisplay(canValue);
+    updateDisplay(canValue);
   }
 
   delay(10);
