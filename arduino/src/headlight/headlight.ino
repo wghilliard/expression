@@ -71,14 +71,12 @@ void loadImage(const uint8_t* compressedData, size_t size) {
 void drawImage(int xOffset, int yOffset) {
   Serial.printf("xOffset=%d yOffset=%d\n", xOffset, yOffset);
   gfx->fillScreen(BLACK);
-  // todo - algo to draw `grid` on screen
 
   for (int xIndex = 0; xIndex < images[imageCursor].width; xIndex++) {
     for (int yIndex = 0; yIndex < images[imageCursor].height; yIndex++) {
       gfx->writePixel(xOffset + xIndex, yOffset + yIndex, grid[xIndex][yIndex]);
     }
   }
-  // gfx->draw16bitRGBBitmap(pDraw->x, pDraw->y, pDraw->pPixels, pDraw->iWidth, pDraw->iHeight);
 }
 
 int JPEGDraw(JPEGDRAW* pDraw) {
@@ -97,6 +95,23 @@ int JPEGDraw(JPEGDRAW* pDraw) {
   //   + " | Min Free PSRAM: " + String(ESP.getMinFreePsram())
   //   + " | renderedBytes= " + String(renderedBytes) + "/" + String(totalBytes));
   // gfx->draw16bitRGBBitmap(pDraw->x, pDraw->y, pDraw->pPixels, pDraw->iWidth, pDraw->iHeight);
+  int currentX = 0;
+  int currentY = 0;
+  int xToDraw = 0;
+  int yToDraw = 0;
+  int range = pDraw->iWidth * pDraw->iHeight;
+  // Serial.printf("range=%d\n", range);
+  for (int index = 0; index < range; index++) {
+    xToDraw = pDraw->x + currentX;
+    yToDraw = pDraw->y + currentY;
+    // Serial.printf("xToDraw=%d yToDraw=%d\n", xToDraw, yToDraw);
+    grid[xToDraw][yToDraw] = pDraw->pPixels[index];
+    currentX++;
+    if (currentX >= pDraw->iWidth) {
+      currentX = 0;
+      currentY++;
+    }
+  }
 
   // delay(10);
   return 1;
@@ -129,7 +144,7 @@ void nextImage() {
 
 void setup(void) {
   Serial.begin(115200);
-  while (!Serial) delay(100);
+  // while (!Serial) delay(100);
 
 #ifdef GFX_EXTRA_PRE_INIT
   GFX_EXTRA_PRE_INIT();
@@ -157,9 +172,9 @@ void setup(void) {
 
   Serial.printf("setting imageLeftX=%d imageTopY=%d\n", imageLeftX, imageTopY);
   loadImage(currentImage.data, currentImage.size);
-  Serial.println("loadedImage");
+  // Serial.println("loadedImage");
   drawImage(imageLeftX, imageTopY);
-  Serial.println("drewImage");
+  // Serial.println("drewImage");
 
   // https://learn.adafruit.com/adafruit-qualia-esp32-s3-for-rgb666-displays/pinouts
   // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/twai.html#examples
@@ -212,7 +227,7 @@ void loop() {
     // for (int i = 0; i < message.data_length_code; i++) {
     //   Serial.printf("Data byte %d = %d\n", i, message.data[i]);
     // }
-    Serial.printf("message.identifier=%04X\n", message.identifier);
+    // Serial.printf("message.identifier=%04X\n", message.identifier);
     if (message.identifier == SCREEN_ON_PACKET_ID) {
       toggleScreenOn();
     } else if (message.identifier == SCREEN_OFF_PACKET_ID) {
@@ -236,7 +251,7 @@ void loop() {
 
       currentMillis = millis();
       if (currentMillis - lastMovedImageDrawnTimestamp > messageCooldown) {
-        Serial.printf("imageCenterX=%d, imageLeftX=%d \n", imageCenterX, imageLeftX);
+        // Serial.printf("imageCenterX=%d, imageLeftX=%d \n", imageCenterX, imageLeftX);
         loadImage(images[imageCursor].data, images[imageCursor].size);
         drawImage(imageLeftX, imageTopY);
       }
