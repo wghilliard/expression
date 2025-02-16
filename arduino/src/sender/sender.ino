@@ -45,7 +45,7 @@ long messageCooldown = 100;
 
 int currentImageNumber = 0;
 
-const int circularBufferSize = 70;
+const int circularBufferSize = 40;
 int circularBuffer[circularBufferSize];
 int circularBufferIndex = 0;
 

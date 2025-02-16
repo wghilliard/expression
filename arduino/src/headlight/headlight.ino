@@ -27,7 +27,7 @@ Arduino_ESP32RGBPanel* rgbpanel = new Arduino_ESP32RGBPanel(
   ,
   1, 11000000);
 
-Arduino_RGB_Display* gfx = new Arduino_RGB_Display(720 /* width */, 720 /* height */, rgbpanel, 0 /* rotation */, true /* auto_flush */, expander, GFX_NOT_DEFINED /* RST */, NULL, 0);
+Arduino_RGB_Display* gfx = new Arduino_RGB_Display(SCREEN_WIDTH /* width */, SCREEN_HEIGHT /* height */, rgbpanel, 0 /* rotation */, true /* auto_flush */, expander, GFX_NOT_DEFINED /* RST */, NULL, 0);
 
 JPEGDEC jpeg;
 
@@ -36,8 +36,8 @@ int imageCursor = 0;
 
 unsigned long lastMovedImageDrawnTimestamp = millis();
 unsigned long currentMillis;
-long messageCooldown = 500;
-uint lastMessageValue = 0;
+long messageCooldown = 100;
+int lastImageLeftX = 0;
 
 // int updateCount = 0;
 // int renderedBytes = 0;
@@ -55,13 +55,10 @@ void loadImage(const uint8_t* compressedData, size_t size) {
       free(grid[i]);
     }
     free(grid);
-    free(buffer);
   }
 
   gridSize = images[imageCursor].width;
   grid = (uint16_t**)ps_malloc(gridSize * sizeof(uint16_t*));
-  bufferSize = images[imageCursor].width * images[imageCursor].height;
-  buffer = (uint16_t*)ps_malloc(bufferSize * sizeof(uint16_t*));
 
   // Allocate an array of pointers
   // int** arr = malloc(rows * sizeof(int*));
@@ -72,31 +69,25 @@ void loadImage(const uint8_t* compressedData, size_t size) {
   jpeg.openFLASH((uint8_t*)compressedData, size, JPEGDraw);
   jpeg.decode(0, 0, 0);
   jpeg.close();
-
-
-  int currentX = 0;
-  int currentY = 0;
-  for (int bufferIndex = 0; bufferIndex < bufferSize; bufferIndex++) {
-    buffer[bufferIndex] = grid[currentX][currentY];
-    currentX++;
-    if (currentX >= gridSize) {
-      currentX = 0;
-      currentY++;
-    }
-  }
 }
 
 void drawImage(int xOffset, int yOffset) {
   // Serial.printf("xOffset=%d yOffset=%d\n", xOffset, yOffset);
-  gfx->fillScreen(BLACK);
+  for (int bufferIndex = 0; bufferIndex < bufferSize; bufferIndex++) {
+    buffer[bufferIndex] = 0;
+  }
 
-  // for (int xIndex = 0; xIndex < images[imageCursor].width; xIndex++) {
-  //   for (int yIndex = 0; yIndex < images[imageCursor].height; yIndex++) {
-  //     gfx->writePixel(xOffset + xIndex, yOffset + yIndex, grid[xIndex][yIndex]);
-  //   }
-  // }
+  int currentX = 0;
+  int currentY = 0;
+  int bufferIndex = 0;
+  for (int xIndex = 0; xIndex < images[imageCursor].width; xIndex++) {
+    for (int yIndex = 0; yIndex < images[imageCursor].height; yIndex++) {
+      bufferIndex = (xIndex + xOffset) + ((yIndex + yOffset) * SCREEN_WIDTH);
+      buffer[bufferIndex] = grid[xIndex][yIndex];
+    }
+  }
 
-  gfx->draw16bitRGBBitmap(xOffset, yOffset, buffer, images[imageCursor].width, images[imageCursor].height);
+  gfx->draw16bitRGBBitmap(0, 0, buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
 }
 
 int JPEGDraw(JPEGDRAW* pDraw) {
@@ -114,7 +105,6 @@ int JPEGDraw(JPEGDRAW* pDraw) {
   //   + " | Max Alloc PSRAM: " + String(ESP.getMaxAllocPsram())
   //   + " | Min Free PSRAM: " + String(ESP.getMinFreePsram())
   //   + " | renderedBytes= " + String(renderedBytes) + "/" + String(totalBytes));
-  // gfx->draw16bitRGBBitmap(pDraw->x, pDraw->y, pDraw->pPixels, pDraw->iWidth, pDraw->iHeight);
   int currentX = 0;
   int currentY = 0;
   int xToDraw = 0;
@@ -177,7 +167,8 @@ void setup(void) {
     Serial.println("gfx->begin() failed!");
   }
 
-  gfx->fillScreen(BLACK);
+  bufferSize = SCREEN_WIDTH * SCREEN_HEIGHT;
+  buffer = (uint16_t*)ps_malloc(bufferSize * sizeof(uint16_t*));
 
   const Image& currentImage = images[imageCursor];
 
@@ -192,9 +183,7 @@ void setup(void) {
 
   Serial.printf("setting imageLeftX=%d imageTopY=%d\n", imageLeftX, imageTopY);
   loadImage(currentImage.data, currentImage.size);
-  // Serial.println("loadedImage");
   drawImage(imageLeftX, imageTopY);
-  // Serial.println("drewImage");
 
   // https://learn.adafruit.com/adafruit-qualia-esp32-s3-for-rgb666-displays/pinouts
   // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/twai.html#examples
@@ -248,17 +237,12 @@ void loop() {
     } else if (message.identifier == SCREEN_OFF_PACKET_ID) {
       toggleScreenOff();
     } else if (message.identifier == MOVE_IMAGE_PACKET_ID) {
-      // if (images[imageCursor].width == SCREEN_WIDTH) {
-      //   return;
-      // }
+      if (images[imageCursor].width == SCREEN_WIDTH) {
+        return;
+      }
+
       // [0, 100]
       uint percentOffset = message.data[0];
-
-      if (percentOffset == lastMessageValue) {
-        return;
-      } else {
-        lastMessageValue = percentOffset;
-      }
 
       // screen origin is 0, 0 at top left
       int imageCenterX = (SCREEN_WIDTH * percentOffset) / 100;
@@ -270,10 +254,15 @@ void loop() {
       imageLeftX = max(imageLeftX, 0);
       imageLeftX = min(imageLeftX, SCREEN_WIDTH - images[imageCursor].width);
 
+      if (imageLeftX == lastImageLeftX) {
+        return;
+      } else {
+        lastImageLeftX = imageLeftX;
+      }
+
       currentMillis = millis();
       if (currentMillis - lastMovedImageDrawnTimestamp > messageCooldown) {
         // Serial.printf("imageCenterX=%d, imageLeftX=%d \n", imageCenterX, imageLeftX);
-        loadImage(images[imageCursor].data, images[imageCursor].size);
         drawImage(imageLeftX, imageTopY);
       }
 
