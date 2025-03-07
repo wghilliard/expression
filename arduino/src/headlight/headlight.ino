@@ -60,8 +60,6 @@ void loadImage(const uint8_t* compressedData, size_t size) {
   gridSize = images[imageCursor].width;
   grid = (uint16_t**)ps_malloc(gridSize * sizeof(uint16_t*));
 
-  // Allocate an array of pointers
-  // int** arr = malloc(rows * sizeof(int*));
   for (int i = 0; i < images[imageCursor].width; i++) {
     grid[i] = (uint16_t*)ps_malloc(images[imageCursor].height * sizeof(uint16_t));
   }
@@ -72,6 +70,10 @@ void loadImage(const uint8_t* compressedData, size_t size) {
 }
 
 void drawImage(int xOffset, int yOffset) {
+  if (!displayOn) {
+    return;
+  }
+
   // Serial.printf("xOffset=%d yOffset=%d\n", xOffset, yOffset);
   for (int bufferIndex = 0; bufferIndex < bufferSize; bufferIndex++) {
     buffer[bufferIndex] = 0;
@@ -91,7 +93,7 @@ void drawImage(int xOffset, int yOffset) {
 }
 
 int JPEGDraw(JPEGDRAW* pDraw) {
-  Serial.printf("pDraw->x=%d pDraw->y=%d\n", pDraw->x, pDraw->y);
+  // Serial.printf("pDraw->x=%d pDraw->y=%d\n", pDraw->x, pDraw->y);
 
   // renderedBytes += pDraw->iWidth * pDraw->iHeight * sizeof(uint16_t);
   // Serial.println(
@@ -129,37 +131,61 @@ int JPEGDraw(JPEGDRAW* pDraw) {
 
 void toggleScreen() {
   displayOn = !displayOn;
-  expander->digitalWrite(PCA_TFT_BACKLIGHT, displayOn);
+  if (displayOn) {
+    toggleScreenOn();
+  } else {
+    toggleScreenOff();
+  }
 }
 
 void toggleScreenOn() {
   displayOn = true;
-  expander->digitalWrite(PCA_TFT_BACKLIGHT, true);
+  expander->digitalWrite(PCA_TFT_BACKLIGHT, HIGH);
+  setImage(imageCursor);
 }
 
 void toggleScreenOff() {
   displayOn = false;
-  expander->digitalWrite(PCA_TFT_BACKLIGHT, false);
+  expander->digitalWrite(PCA_TFT_BACKLIGHT, LOW);
+  gfx->fillScreen(0);
 }
 
 void nextImage() {
   imageCursor++;
+  setImage(imageCursor);
+}
+
+void setImage(int newCursor) {
+  imageCursor = newCursor;
   if (imageCursor > imageCount - 1) {
     imageCursor = 0;
   }
 
   const Image& currentImage = images[imageCursor];
   loadImage(currentImage.data, currentImage.size);
+  drawImage((SCREEN_WIDTH / 2) - (currentImage.width / 2), (SCREEN_HEIGHT / 2) - (currentImage.height / 2));
+}
+
+void startupAnimation() {
+  const Image& currentImage = images[imageCursor];
+  int xMiddle = (SCREEN_WIDTH / 2) - (currentImage.width / 2);
+  int yMiddle = (SCREEN_HEIGHT / 2) - (currentImage.height / 2);
+  drawImage(xMiddle - 60, yMiddle - 60);
+  delay(50);
+  drawImage(xMiddle + 30, yMiddle + 30);
+  delay(30);
+  drawImage(xMiddle - 30, yMiddle + 90);
+  delay(70);
+  drawImage(xMiddle, yMiddle);
 }
 
 void setup(void) {
   Serial.begin(115200);
-  // while (!Serial) delay(100);
+  while (!Serial) delay(100);
 
 #ifdef GFX_EXTRA_PRE_INIT
   GFX_EXTRA_PRE_INIT();
 #endif
-  Serial.println("hi");
   expander->pinMode(PCA_TFT_BACKLIGHT, OUTPUT);
   expander->digitalWrite(PCA_TFT_BACKLIGHT, HIGH);
 
@@ -181,7 +207,7 @@ void setup(void) {
     imageTopY = (SCREEN_HEIGHT / 2) - (currentImage.height / 2);
   }
 
-  Serial.printf("setting imageLeftX=%d imageTopY=%d\n", imageLeftX, imageTopY);
+  // Serial.printf("setting imageLeftX=%d imageTopY=%d\n", imageLeftX, imageTopY);
   loadImage(currentImage.data, currentImage.size);
   drawImage(imageLeftX, imageTopY);
 
@@ -202,6 +228,8 @@ void setup(void) {
   } else {
     Serial.printf("Failed to install driver\n");
   }
+
+  startupAnimation();
 }
 
 
@@ -267,10 +295,7 @@ void loop() {
       }
 
     } else if (message.identifier == SET_IMAGE_PACKET_ID) {
-      imageCursor = message.data[0];
-      if (imageCursor > imageCount - 1) {
-        imageCursor = 0;
-      }
+      setImage(message.data[0]);
     }
   }
 }

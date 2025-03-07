@@ -14,7 +14,7 @@ struct Image {
 
 const Image rightImages[] = {
   { eyes_movable_bytes, sizeof(eyes_movable_bytes), 220, 220 },
-  { eyes_right_bytes, sizeof(eyes_right_bytes), 720, 720 },
+  // { eyes_right_bytes, sizeof(eyes_right_bytes), 720, 720 },
   { nyan_right_bytes, sizeof(nyan_right_bytes), 720, 720 },
   { frogs_right_bytes, sizeof(frogs_right_bytes), 720, 720 }
 };

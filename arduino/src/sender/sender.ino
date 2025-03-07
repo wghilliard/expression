@@ -13,15 +13,20 @@
 #define X_AXIS_PIN 14
 #define Y_AXIS_PIN 15
 
-#define STATIC_IMAGE_MODE 0
-#define DYNAMIC_IMAGE_MODE 1
-#define NO_IMAGE_MODE 2
+#define BUTTON_PIN 23
 
-const int displayRow = 3;
+// #define STATIC_IMAGE_MODE 0
+#define DYNAMIC_IMAGE_MODE 0
+#define NO_IMAGE_MODE 1
+
+#define NEXT_IMAGE_BUTTON_PRESS_DURATION 20
+#define TOGGLE_SCREEN_BUTTON_PRESS_DURATION 1000
+
+#define DISPLAY_ROW 3
 
 
 CANSAME5x CAN;
-int mode = 1;
+int mode = 0;
 auto matrix = Adafruit_NeoMatrix(LED_WIDTH,
                                  LED_HEIGHT,
                                  LED_PIN,
@@ -40,9 +45,13 @@ int cooldown = 0;
 int grid[LED_WIDTH][LED_HEIGHT] = { 0 };
 
 unsigned long lastSendMoveTimestamp = millis();
+unsigned long lastSendImageIndexTimestamp = millis();
+
 unsigned long currentMillis;
 long messageCooldown = 100;
+long imageIndexMessageCooldown = 5000;
 
+int buttonIsPressed = 0;
 int currentImageNumber = 0;
 
 const int circularBufferSize = 40;
@@ -51,11 +60,11 @@ int circularBufferIndex = 0;
 
 void changeModeAndSend() {
   mode++;
-  if (mode > 2) {
+  if (mode > 1) {
     mode = 0;
   }
 
-  if (mode == STATIC_IMAGE_MODE || mode == DYNAMIC_IMAGE_MODE) {
+  if (mode == DYNAMIC_IMAGE_MODE) {
     CAN.beginPacket(SCREEN_ON_PACKET_ID);
   } else if (mode == NO_IMAGE_MODE) {
     CAN.beginPacket(SCREEN_OFF_PACKET_ID);
@@ -63,31 +72,48 @@ void changeModeAndSend() {
   CAN.endPacket();
 }
 
-// TODO damper w/ integral?
-// canValue [0, 100]
-void sendMove(int canValue) {
-  currentMillis = millis();
+void changeImageAndSend() {
+  CAN.beginPacket(SET_IMAGE_PACKET_ID);
+  currentImageNumber++;
 
-  if (currentMillis - lastSendMoveTimestamp < messageCooldown) {
-    return;
+  if (currentImageNumber > 3) {
+    currentImageNumber = 0;
   }
 
-  CAN.beginPacket(MOVE_IMAGE_PACKET_ID);
-  CAN.write(canValue);
+  CAN.write(currentImageNumber);
   CAN.endPacket();
-  lastSendMoveTimestamp = currentMillis;
 }
 
-uint16_t color;
-void showMode() {
-  if (mode == STATIC_IMAGE_MODE) {
-    color = Adafruit_NeoMatrix::Color(5, 0, 0);
-  } else if (mode == DYNAMIC_IMAGE_MODE) {
-    color = Adafruit_NeoMatrix::Color(0, 5, 0);
-  } else if (mode == NO_IMAGE_MODE) {
-    color = Adafruit_NeoMatrix::Color(0, 0, 5);
+// lateralAcceleration [0, 100]
+// this method will send the current mode (just in case it was missed when it was initially set) and send the current acceraltion value
+void sendMessages(int lateralAcceleration) {
+  currentMillis = millis();
+
+  // if (currentMillis - lastSendImageIndexTimestamp < imageIndexMessageCooldown) {
+  //   CAN.beginPacket(SET_IMAGE_PACKET_ID);
+  //   CAN.write(currentImageNumber);
+  //   CAN.endPacket();
+  //   lastSendImageIndexTimestamp = currentMillis;
+  // }
+
+  if (currentMillis - lastSendMoveTimestamp < messageCooldown) {
+    CAN.beginPacket(MOVE_IMAGE_PACKET_ID);
+    CAN.write(lateralAcceleration);
+    CAN.endPacket();
+    lastSendMoveTimestamp = currentMillis;
   }
-  matrix.drawPixel(0, 0, color);
+}
+
+void showModeAndImage() {
+  if (mode == DYNAMIC_IMAGE_MODE) {
+    matrix.drawPixel(0, 0, Adafruit_NeoMatrix::Color(0, 50, 50));
+  }
+  if (mode == NO_IMAGE_MODE) {
+    matrix.drawPixel(0, 0, Adafruit_NeoMatrix::Color(50, 50, 0));
+  }
+
+  matrix.drawPixel(1, 0, Adafruit_NeoMatrix::Color(0, 0, (currentImageNumber + 1) * 50));
+  matrix.show();
 }
 
 // [0, 100]
@@ -95,37 +121,19 @@ void showMode() {
 
 // [40, 60]
 // [0, 7]
-void updateDisplay(int canValue) {
-  // if (cooldown == 0) {
-
-  // // we moving back
-  // if (yAcceleration > yAvg + senstivity) {
-  //   grid[3][3] = 255;
-  //   grid[4][3] = 255;
-  // }
-  // // we moving forward
-  // else if (yAcceleration < yAvg - senstivity) {
-  //   grid[3][0] = 255;
-  //   grid[4][0] = 255;
-  // }
-  // } else if (cooldown < 5) {
-  //   cooldown++;
-  // } else {
-  //   cooldown = 0;
-  // }
-
+void updateAccelDisplay(int canValue) {
   int index = ((canValue - 40) / 3);
   // Serial.printf("index=%d\n", index);
   index = max(index, 0);
   index = min(index, 7);
-  grid[index][displayRow] = 255;
+  grid[index][DISPLAY_ROW] = 255;
 
   for (short x = 0; x < LED_WIDTH; x++) {
-    val = grid[x][displayRow];
-    matrix.drawPixel(x, displayRow, Adafruit_NeoMatrix::Color(0, 0, val));
+    val = grid[x][DISPLAY_ROW];
+    matrix.drawPixel(x, DISPLAY_ROW, Adafruit_NeoMatrix::Color(0, 0, val));
 
     if (val > 0) {
-      grid[x][displayRow] -= 5;
+      grid[x][DISPLAY_ROW] -= 5;
     }
   }
   matrix.show();
@@ -133,13 +141,13 @@ void updateDisplay(int canValue) {
 
 void setup() {
   Serial.begin(115200);
-  // while (!Serial) delay(10);
+  while (!Serial) delay(10);
 
   pinMode(PIN_CAN_STANDBY, OUTPUT);
   digitalWrite(PIN_CAN_STANDBY, false);  // turn off STANDBY
   pinMode(PIN_CAN_BOOSTEN, OUTPUT);
   digitalWrite(PIN_CAN_BOOSTEN, true);  // turn on booster
-
+  pinMode(BUTTON_PIN, INPUT);
   // start the CAN bus at 250 kbps
   if (!CAN.begin(250000)) {
     Serial.println("Starting CAN failed!");
@@ -148,30 +156,45 @@ void setup() {
   matrix.begin();
   matrix.fillScreen(Adafruit_NeoMatrix::Color(0, 0, 0));
   matrix.show();
+  showModeAndImage();
 }
 
+int loopDelay = 10;
+int buttonPressDuration = 0;
+bool buttonPressComplete = false;
 
 
 void loop() {
-  // TODO - check for button hold
-  if (false) {
-    changeModeAndSend();
+  buttonIsPressed = digitalRead(BUTTON_PIN);
+  // Serial.printf("buttonIsPressed=%d\n", buttonIsPressed);
+  if (buttonIsPressed == HIGH) {
+    if (buttonPressDuration == 0) {
+      matrix.drawPixel(3, 0, Adafruit_NeoMatrix::Color(0, 0, 50));
+      matrix.show();
+    }
+    buttonPressDuration += loopDelay;
+  } else if (buttonPressDuration > 0) {
+    buttonPressComplete = true;
+    // Serial.printf("buttonPressComplete buttonPressDuration=%d\n", buttonPressDuration);
+    matrix.drawPixel(3, 0, Adafruit_NeoMatrix::Color(0, 0, 0));
+    matrix.show();
   }
 
-  // TODO - check for button press
-  if (false) {
-    CAN.beginPacket(SET_IMAGE_PACKET_ID);
-    currentImageNumber++;
-
-    if (currentImageNumber > 3) {
-      currentImageNumber = 0;
+  if (buttonPressComplete) {
+    if (buttonPressDuration >= TOGGLE_SCREEN_BUTTON_PRESS_DURATION) {
+      // Serial.printf("changing mode=%d\n", mode);
+      changeModeAndSend();
+    } else if (buttonPressDuration >= NEXT_IMAGE_BUTTON_PRESS_DURATION) {
+      // Serial.printf("changing image=%d\n", currentImageNumber);
+      changeImageAndSend();
     }
 
-    CAN.write(currentImageNumber);
-    CAN.endPacket();
+    showModeAndImage();
 
-    // update display
+    buttonPressComplete = false;
+    buttonPressDuration = 0;
   }
+
   // xAccel = analogRead(X_AXIS_PIN);
   yAccel = analogRead(X_AXIS_PIN);
   // yMin = min(yAccel, yMin);
@@ -211,11 +234,12 @@ void loop() {
 
   canValue = min(canValue, 100);
   canValue = max(canValue, 0);
+  // Serial.printf("mode=%d\n", mode);
   if (mode == DYNAMIC_IMAGE_MODE) {
     // Serial.printf("canValue=%d\n", canValue);
-    sendMove(canValue);
-    updateDisplay(canValue);
+    sendMessages(canValue);
+    updateAccelDisplay(canValue);
   }
 
-  delay(10);
+  delay(loopDelay);
 }
